@@ -56,37 +56,17 @@ class UidParser implements InlineParserInterface
      */
     public function getMatchDefinition(): InlineParserMatch
     {
-        #This one permits escaping a # sign inside the text to be shown in the link and is ungreedy
-        # so there can be more than one reference in one line
-        return InlineParserMatch::regex('#(' . Gedcom::REGEX_UID . ')(?::(.+?[^\\\]))?#');
-
-        // TESTED IN PHP 7.4
-        //
-        // #                  literal # (start ancor)
-        // (                  start 1st capturing group
-        // Gedcom::REGEX_UID  regex to match an UID
-        // )                  end 1st capturing group
-        // (?:                begin 1st non-capturing group
-        //   :                a literal :
-        //   (                start 2nd capturing group (without first :)
-        //     .+?            any character one or more times NON GREEDY
-        //     [^\\\]         any character that is not a \
-        //   )                end 2nd capturing group
-        // )                  end 1st non-capturing group
-        // ?                  1st non-capturing group can be there or not
-        // #                  literal # (end ancor)
+        return InlineParserMatch::regex('#(' . Gedcom::REGEX_UID . ')(:.*)?#');
     }
 
-    private function firstMatchingUidRecord(String $pUid, Collection $pCollection): ?Object
+    private function firstMatchingUid(String $pUid, Collection $pCollection)
     {
         foreach ($pCollection as $recTmp) {
-            $regexTmp = '/\n1 _?UID ' . $pUid . '(:?\n|$)/';
-            if (preg_match($regexTmp, $recTmp->gedcom())) {
+            if (preg_match('/\n1 _?UID ' . $pUid . '$/', $recTmp->gedcom())) {
                 return $recTmp;
                 break;
             }
         }
-
         return null;
     }
 
@@ -99,13 +79,13 @@ class UidParser implements InlineParserInterface
     {
         $cursor = $inlineContext->getCursor();
         $subm = $inlineContext->getSubMatches();
+        #[$uid, $linkText] = $inlineContext->getSubMatches();
+        #$uid = [$subm[0], 'UID ' . $subm[0]];
         $uid = [$subm[0]];
         $firstFoundRecord = null;
         if (isset($subm[1])) {
-            #Unescape character's #
-
-            #NOTE: It should use only one \\, but it's using two because it get's escaped again in the regex processing.
-            $linkText = preg_replace("/\\\\#/", "#", $subm[1]);
+            #Remove the initial colon
+            $linkText = substr($subm[1], 1);
         } else {
             $linkText = '';
         }
@@ -119,35 +99,35 @@ class UidParser implements InlineParserInterface
         }
 
         $result = $this->search_service->searchIndividuals([$this->tree], $uid);
-        $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+        $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
 
         if ($firstFoundRecord === null) {
             $result = $this->search_service->searchFamilies([$this->tree], $uid);
-            $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+            $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
 
             if ($firstFoundRecord === null) {
                 $result = $this->search_service->searchFamilyNames([$this->tree], $uid);
-                $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+                $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
 
                 if ($firstFoundRecord === null) {
                     $result = $this->search_service->searchRepositories([$this->tree], $uid);
-                    $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+                    $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
 
                     if ($firstFoundRecord === null) {
                         $result = $this->search_service->searchSources([$this->tree], $uid);
-                        $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+                        $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
 
                         if ($firstFoundRecord === null) {
                             $result = $this->search_service->searchNotes([$this->tree], $uid);
-                            $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+                            $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
 
                             if ($firstFoundRecord === null) {
                                 $result = $this->search_service->searchLocations([$this->tree], $uid);
-                                $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+                                $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
 
                                 if ($firstFoundRecord === null) {
                                     $result = $this->search_service->searchMedia([$this->tree], $uid);
-                                    $firstFoundRecord = $this->firstMatchingUidRecord($uid[0], $result);
+                                    $firstFoundRecord = $this->firstMatchingUid($uid[0], $result);
                                 }
                             }
                         }
@@ -156,20 +136,21 @@ class UidParser implements InlineParserInterface
             }
         }
 
+
         if ($firstFoundRecord === null) {
             return false;
         } else {
-            $record = $firstFoundRecord;
 
+            $record = $firstFoundRecord;
+    
             if ($record instanceof GedcomRecord) {
                 $cursor->advanceBy($inlineContext->getFullMatchLength());
 
-                $inlineContext->getContainer()->appendChild(new UidNode($record, $linkText));
+            $inlineContext->getContainer()->appendChild(new XrefNode($record));
 
-                return true;
-            }
-
-            return false;
+            return true;
         }
+
+        return false;
     }
 }
